@@ -161,6 +161,7 @@
   </div>
 </template>
 
+<p id="toto"></p>
 <script>
 import Menu from '@/components/dataset/Menu.vue'
 import { displayError } from '@/utils'
@@ -168,7 +169,10 @@ import currentDatasetMixin from '@/mixins/current-dataset'
 import currentDatasetMixinNavigationGuards from '@/mixins/current-dataset-navigation-guards'
 import { Popover } from 'bootstrap'
 import JenaTable from '@/components/dataset/JenaTable.vue'
-
+const url = "_ah/api/myApi/v1/topscores"
+fetch(url)
+  .then(response => response.text())
+  .then(data => document.getElementById('toto').innerHTML = data)
 export default {
   name: 'DatasetInfo',
 
@@ -315,5 +319,7 @@ export default {
       }
     }
   }
+
+
 }
 </script>
