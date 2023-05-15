@@ -15,7 +15,6 @@
    limitations under the License.
 -->
 
-
 <template>
   <div class="container-fluid">
     <div class="row mt-4">
@@ -167,6 +166,9 @@
                 <div class="col-sm-12">
                   <div id="yasqe"></div>
                 </div>
+                <div class="col-sm-12">
+                  <div id="yasr"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -179,18 +181,17 @@
 <script>
 import Menu from '@/components/dataset/Menu.vue'
 import Yasqe from '@triply/yasqe'
+import Yasr from '@triply/yasr'
 import { createShareableLink } from '@/utils/query'
 import { nextTick } from 'vue'
 import currentDatasetMixin from '@/mixins/current-dataset'
 import currentDatasetMixinNavigationGuards from '@/mixins/current-dataset-navigation-guards'
-
 
 const SELECT_TRIPLES_QUERY = `SELECT ?subject ?predicate ?object
 WHERE {
   ?subject ?predicate ?object
 }
 LIMIT 25`
-
 
 const SELECT_CLASSES_QUERY = `PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
@@ -202,7 +203,6 @@ WHERE {
   OPTIONAL { ?class rdfs:comment ?description}
 }
 LIMIT 25`
-
 
 export default {
   name: 'DatasetQuery',
@@ -252,7 +252,6 @@ export default {
       ],
       currentQueryPrefixes: [],
       currentDatasetUrl: ''
-
     }
   },
 
@@ -267,12 +266,23 @@ export default {
 
   created () {
     this.yasqe = null
+    this.yasr = null
     this.$nextTick(() => {
       setTimeout(() => {
         const vm = this
 
+        document.getElementById('yasr').innerHTML = ''
         document.getElementById('yasqe').innerHTML = ''
 
+        // results area
+        vm.yasr = new Yasr(
+          document.getElementById('yasr'),
+          {
+            // we do not want to save the results, otherwise we will have query results showing in different
+            // dataset views
+            persistenceId: null
+          }
+        )
         // Curried function to create shareable links. YASQE expects a function
         // that accepts only an instance of YASQE.
         const curriedCreateShareableLink = yasqe => {
@@ -292,7 +302,8 @@ export default {
           }
         )
         vm.yasqe.on('queryResponse', (yasqe, response, duration) => {
-          vm.yasqe.saveQuery();
+          vm.yasqe.saveQuery()
+          vm.yasr.setResponse(response, duration)
         })
         if (this.$route.query.query !== undefined) {
           vm.setQuery(this.$route.query.query)
@@ -333,8 +344,7 @@ export default {
       if (this.yasqe) {
         this.yasqe.options.requestConfig.acceptHeaderGraph = this.contentTypeGraph
       }
-    },
-
+    }
   },
 
   methods: {
@@ -374,11 +384,34 @@ export default {
     }
   }
 }
-
-
 </script>
 
 <style lang="scss">
 @import '~@triply/yasqe/build/yasqe.min.css';
+@import '~@triply/yasr/build/yasr.min.css';
 
+// N.B: these were copied from an old release of YASR due to this
+//      change: https://github.com/TriplyDB/Yasgui/commit/19521998f035e718d3f1d5cfa6073ce2e34242e7
+//      for more: https://github.com/apache/jena/pull/1153
+.yasr table.dataTable {
+  border: 1px solid rgb(217, 217, 217);
+  border-image-source: initial;
+  border-image-slice: initial;
+  border-image-repeat: initial;
+  tbody {
+    tr {
+      td {
+        border-top: 1px solid #ddd;
+      }
+      &:last-of-type {
+        td {
+          border-bottom: 1px solid #ddd;
+        }
+      }
+      &:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+    }
+  }
+}
 </style>
