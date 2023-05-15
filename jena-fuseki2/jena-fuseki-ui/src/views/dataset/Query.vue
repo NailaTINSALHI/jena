@@ -187,6 +187,7 @@ import { nextTick } from 'vue'
 import currentDatasetMixin from '@/mixins/current-dataset'
 import currentDatasetMixinNavigationGuards from '@/mixins/current-dataset-navigation-guards'
 
+var sageMod = null;
 const SELECT_TRIPLES_QUERY = `SELECT ?subject ?predicate ?object
 WHERE {
   ?subject ?predicate ?object
@@ -203,7 +204,6 @@ WHERE {
   OPTIONAL { ?class rdfs:comment ?description}
 }
 LIMIT 25`
-
 export default {
   name: 'DatasetQuery',
 
@@ -267,6 +267,7 @@ export default {
   created () {
     this.yasqe = null
     this.yasr = null
+    this.sageModule = null
     this.$nextTick(() => {
       setTimeout(() => {
         const vm = this
@@ -301,9 +302,13 @@ export default {
             createShareableLink: curriedCreateShareableLink
           }
         )
+        console.log(vm.yasqe.getValue())
+
         vm.yasqe.on('queryResponse', (yasqe, response, duration) => {
           vm.yasqe.saveQuery()
           vm.yasr.setResponse(response, duration)
+          const data = JSON.parse(response.text);
+          sageMod = data.SageModule;
         })
         if (this.$route.query.query !== undefined) {
           vm.setQuery(this.$route.query.query)
