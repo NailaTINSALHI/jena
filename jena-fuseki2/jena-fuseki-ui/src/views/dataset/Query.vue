@@ -14,7 +14,6 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 -->
-
 <template>
   <div class="container-fluid">
     <div class="row mt-4">
@@ -66,6 +65,15 @@
                       >{{ prefix.text }}</span>
                     </div>
                   </fieldset>
+                </div>
+                <div class="col">
+                  <!--<fieldset
+                    class="form-group"
+                  >
+                    <label for="limit"> Results Limit</label>
+                    <input type="number" class="form-control" id="limitInput" value="blank" placeholder="Enter limit..">
+                    <button type="submit" id="limitBtn" class="btn btn-primary" @click.capture="retrieveLimit()">Enter</button>
+                  </fieldset>-->
                 </div>
               </div>
               <div class="row">
@@ -166,8 +174,23 @@
                 <div class="col-sm-12">
                   <div id="yasqe"></div>
                 </div>
+                <div class="row">
+                  <div class="col">
+                    <button id="exeCounter" class="btn btn-primary">Number of executions: 0</button>
+                  </div>
+                  <div class="col">
+                    <fieldset class = "form-group">
+                      <button
+                        id="pauseBtn"
+                        class="btn btn-primary"
+                      >Pause</button>
+                    </fieldset>
+                  </div>
+                </div>
+
                 <div class="col-sm-12">
-                  <div id="yasr"></div>
+                  <div id="yasr">
+                  </div>
                 </div>
               </div>
             </div>
@@ -186,8 +209,11 @@ import { createShareableLink } from '@/utils/query'
 import { nextTick } from 'vue'
 import currentDatasetMixin from '@/mixins/current-dataset'
 import currentDatasetMixinNavigationGuards from '@/mixins/current-dataset-navigation-guards'
-
-var sageMod = null;
+import rectToClientRect from "@popperjs/core/lib/utils/rectToClientRect";
+const defaultLimit = 100000000000000
+let nbOutputs = 0
+let isPaused = true
+let innerText = "Number of executions: "
 const SELECT_TRIPLES_QUERY = `SELECT ?subject ?predicate ?object
 WHERE {
   ?subject ?predicate ?object
@@ -204,6 +230,7 @@ WHERE {
   OPTIONAL { ?class rdfs:comment ?description}
 }
 LIMIT 25`
+
 export default {
   name: 'DatasetQuery',
 
@@ -217,6 +244,16 @@ export default {
 
   ...currentDatasetMixinNavigationGuards,
 
+
+
+  computed: {
+    datasetUrl () {
+      if (!this.datasetName || this.services === null || !this.services.query || !this.services.query['srv.endpoints'] || this.services.query['srv.endpoints'].length === 0) {
+        return ''
+      }
+      return `/${this.datasetName}/${this.services.query['srv.endpoints'][0]}`
+    }
+  },
   data () {
     return {
       loading: true,
@@ -254,26 +291,58 @@ export default {
       currentDatasetUrl: ''
     }
   },
-
-  computed: {
-    datasetUrl () {
-      if (!this.datasetName || this.services === null || !this.services.query || !this.services.query['srv.endpoints'] || this.services.query['srv.endpoints'].length === 0) {
-        return ''
-      }
-      return `/${this.datasetName}/${this.services.query['srv.endpoints'][0]}`
-    }
-  },
-
   created () {
     this.yasqe = null
     this.yasr = null
-    this.sageModule = null
     this.$nextTick(() => {
+
       setTimeout(() => {
         const vm = this
-
         document.getElementById('yasr').innerHTML = ''
         document.getElementById('yasqe').innerHTML = ''
+        function changeButtonText(count, sgModule) {
+          var button = document.getElementById('exeCounter');
+          button.innerHTML = innerText + count.toString();
+          if(sgModule == null){
+            button.innerHTML += ". \n No further results available for your query!";
+          }
+        }
+
+        function fireRequest(yasqe, yasr, sageInput, sageOutput, nbO, bindings, total_duration, isPaused){
+          if(sageOutput != "") {
+            yasqe.config.requestConfig.args.pop()
+            yasqe.config.requestConfig.args.push({name: "sageInput", value: sageInput})
+            yasqe.config.requestConfig.args.push({name: "sageOutput", value: sageOutput})
+          }
+
+          let res;
+          yasqe.on('queryResponse', (yasqe, response, duration) => {
+            yasqe.saveQuery()
+            total_duration += duration
+            let data = JSON.parse(response.text)
+            bindings = bindings.concat(data.results.bindings)
+            response.body.results.bindings = bindings
+            yasr.setResponse(response, total_duration)
+            nbO += 1
+            changeButtonText(nbO, data.SageModule)
+          if(data.SageModule != null){
+             fireRequest(yasqe, yasr, sageInput, data.SageModule, nbO, bindings, total_duration, isPaused)
+          }
+          })
+        }
+
+        function abortRequest(yasqe, yasr, sageOutput, sageInput){
+          if(sageOutput != "") {
+            yasqe.config.requestConfig.args.pop()
+            yasqe.config.requestConfig.args.push({name: "sageInput", value: sageInput})
+            yasqe.config.requestConfig.args.push({name: "sageOutput", value: sageOutput})
+          }
+
+          yasqe.on('queryAbort', (yasqe, response) => {
+            yasqe.saveQuery()
+            console.log("ouft")
+          })
+        }
 
         // results area
         vm.yasr = new Yasr(
@@ -284,32 +353,39 @@ export default {
             persistenceId: null
           }
         )
+
         // Curried function to create shareable links. YASQE expects a function
         // that accepts only an instance of YASQE.
         const curriedCreateShareableLink = yasqe => {
           return createShareableLink(yasqe.getValue(), vm.$route.path)
         }
+
         // query editor
         // NOTE: the full screen functionality was removed from YASQE: https://github.com/Triply-Dev/YASGUI.YASQE-deprecated/issues/139#issuecomment-573656137
+        const sageInput = "{\"state\":{},\"limit\":"+defaultLimit.toString()+",\"timeout\":9223372036854775807,\"deadline\":9223372036854775807,\"randomWalking\":false,\"backjumping\":false,\"backend\":null}";
         vm.yasqe = new Yasqe(
           document.getElementById('yasqe'),
           {
             showQueryButton: true,
             resizeable: true,
             requestConfig: {
-              endpoint: this.$fusekiService.getFusekiUrl(this.currentDatasetUrl)
+              endpoint: this.$fusekiService.getFusekiUrl(this.currentDatasetUrl),
+              args: [{name: "sageInput", value: sageInput}]
             },
             createShareableLink: curriedCreateShareableLink
           }
         )
-        console.log(vm.yasqe.getValue())
-
-        vm.yasqe.on('queryResponse', (yasqe, response, duration) => {
-          vm.yasqe.saveQuery()
-          vm.yasr.setResponse(response, duration)
-          const data = JSON.parse(response.text);
-          sageMod = data.SageModule;
+        const pauseButton = document.getElementById("pauseBtn")
+        pauseButton.addEventListener('click', function() {
+          var button = document.getElementById('pauseBtn');
+          button.innerHTML = "Query paused";
+          button.style.backgroundColor = 'orange'
+          vm.yasqe.abortQuery()
         })
+
+        fireRequest(vm.yasqe, vm.yasr, sageInput, "", nbOutputs, [], 0);
+        abortRequest(vm.yasqe, vm.yasr, "", sageInput)
+
         if (this.$route.query.query !== undefined) {
           vm.setQuery(this.$route.query.query)
         }
@@ -318,7 +394,6 @@ export default {
       }, 300)
     })
   },
-
   beforeRouteUpdate (from, to, next) {
     nextTick(() => {
       if (this.$route.query.query !== undefined) {
@@ -353,6 +428,7 @@ export default {
   },
 
   methods: {
+    rectToClientRect,
     setQuery (query) {
       // Passing this query value through queryString.stringify(.parse) creates an
       // invalid query. Tested some XSS values with Chrome and FFox, and couldn't
@@ -386,9 +462,11 @@ export default {
         this.yasqe.addPrefixes(newPrefix)
         this.currentQueryPrefixes.push(prefix.uri)
       }
-    }
+    },
   }
 }
+
+document.getElementsByClassName("yasqe_queryButton").item(0)
 </script>
 
 <style lang="scss">
@@ -403,6 +481,7 @@ export default {
   border-image-source: initial;
   border-image-slice: initial;
   border-image-repeat: initial;
+
   tbody {
     tr {
       td {
@@ -420,3 +499,11 @@ export default {
   }
 }
 </style>
+
+<style>
+#demo {
+  -webkit-box-shadow: 5px 5px 15px 5px #000000;
+  box-shadow: 0px 0px 15px 13px rgba(253, 100, 100, 0.27);
+}
+</style>
+
